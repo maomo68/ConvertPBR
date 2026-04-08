@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>SL MATERIALIZER PBR</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0b0e14;
+            --panel-bg: #1a1f2b;
+            --accent-cyan: #00f2ff;
+            --accent-purple: #8b5cf6;
+            --text-gray: #94a3b8;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: var(--bg-dark);
+            color: white;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .main-container {
+            width: 95%;
+            max-width: 1100px;
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 25px;
+            padding: 20px;
+        }
+
+        /* Titolo Neon */
+        .header-title {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--accent-cyan);
+            text-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        /* Area Preview 3D */
+        .preview-card {
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            position: relative;
+            overflow: hidden;
+            height: 550px;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        /* Pannello Controlli */
+        .settings-panel {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        h3 { font-size: 0.9rem; color: var(--text-gray); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+
+        .input-group { display: flex; flex-direction: column; gap: 8px; }
+        
+        label { font-size: 0.75rem; color: var(--text-gray); font-weight: 600; text-transform: uppercase; }
+
+        input[type="text"] {
+            background: #0f172a;
+            border: 1px solid var(--accent-purple);
+            border-radius: 6px;
+            padding: 10px;
+            color: var(--accent-cyan);
+            outline: none;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-cyan);
+        }
+
+        .val-display { float: right; color: var(--accent-cyan); font-size: 0.8rem; }
+
+        /* Bottoni */
+        .btn {
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 800;
+            cursor: pointer;
+            border: none;
+            text-transform: uppercase;
+            transition: 0.3s;
+        }
+
+        .btn-load { background: var(--accent-purple); color: white; }
+        .btn-export { 
+            background: var(--accent-cyan); 
+            color: #000; 
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+            margin-top: 10px;
+        }
+        .btn:hover { transform: scale(1.02); filter: brightness(1.1); }
+
+        .hidden { display: none; }
+
+        /* Overlay Caricamento Iniziale */
+        .initial-upload {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <div class="header-title">SL MATERIALIZER PBR</div>
+
+    <div class="preview-card" id="viewer-container">
+        <div id="upload-prompt" class="initial-upload">
+            <button class="btn btn-load" onclick="document.getElementById('file-input').click()">Carica Immagine Base</button>
+            <p style="font-size: 0.8rem; color: var(--text-gray); margin-top: 10px;">JPG o PNG (1024x1024 consigliato)</p>
+        </div>
+        <input type="file" id="file-input" class="hidden" accept="image/*">
+    </div>
+
+    <div class="settings-panel">
+        <h3>Material Settings</h3>
+        
+        <div class="input-group">
+            <label>Material Name</label>
+            <input type="text" id="mat-name" value="MyCustomMaterial">
+        </div>
+
+        <div class="input-group">
+            <label>Roughness <span class="val-display" id="v-rough">0.50</span></label>
+            <input type="range" id="roughness" min="0" max="1" step="0.01" value="0.5">
+        </div>
+
+        <div class="input-group">
+            <label>Metallic <span class="val-display" id="v-metal">0.00</span></label>
+            <input type="range" id="metallic" min="0" max="1" step="0.01" value="0">
+        </div>
+
+        <div class="input-group">
+            <label>Normal Scale <span class="val-display" id="v-normal">1.0</span></label>
+            <input type="range" id="normalScale" min="0" max="3" step="0.1" value="1">
+        </div>
+
+        <button class="btn btn-load" onclick="document.getElementById('file-input').click()">Change Image</button>
+        <button class="btn btn-export" onclick="exportGLTF()">Export .GLTF Material Finito &rarr;</button>
+        
+        <p style="font-size: 0.65rem; color: var(--text-gray); text-align: center;">
+            Compatible with Second Life PBR Workflow<br>Asset ready for direct import
+        </p>
+    </div>
+</div>
+
+<script>
+    let scene, camera, renderer, material, sphere;
+    const fileInput = document.getElementById('file-input');
+
+    fileInput.onchange = (e) => {
+        const reader = new FileReader();
+        reader.onload = (event) => initScene(event.target.result);
+        reader.readAsDataURL(e.target.files[0]);
+    };
+
+    function initScene(imageSrc) {
+        document.getElementById('upload-prompt').classList.add('hidden');
+        
+        // Se la scena esiste già, puliamola
+        if(renderer) {
+            document.getElementById('viewer-container').removeChild(renderer.domElement);
+        }
+
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(45, document.getElementById('viewer-container').clientWidth / 550, 0.1, 100);
+        camera.position.z = 2.8;
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(document.getElementById('viewer-container').clientWidth, 550);
+        document.getElementById('viewer-container').appendChild(renderer.domElement);
+
+        // --- ILLUMINAZIONE SCHIARITA (Studio Setup) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Luce diffusa alta
+        scene.add(ambientLight);
+
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2); // Luce frontale forte
+        mainLight.position.set(1, 1, 5);
+        scene.add(mainLight);
+
+        const backLight = new THREE.PointLight(0xffffff, 0.5); // Luce di contorno
+        backLight.position.set(-5, 2, -5);
+        scene.add(backLight);
+
+        // Texture
+        const loader = new THREE.TextureLoader();
+        loader.load(imageSrc, (texture) => {
+            texture.anisotropy = 16;
+            material = new THREE.MeshStandardMaterial({
+                map: texture,
+                roughness: 0.5,
+                metalness: 0,
+                normalMap: texture, // Usiamo l'immagine come normal map base
+            });
+
+            sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material);
+            scene.add(sphere);
+            animate();
+        });
+
+        // Controlli Real-time con display valori
+        document.getElementById('roughness').oninput = (e) => {
+            material.roughness = e.target.value;
+            document.getElementById('v-rough').innerText = parseFloat(e.target.value).toFixed(2);
+        };
+        document.getElementById('metallic').oninput = (e) => {
+            material.metalness = e.target.value;
+            document.getElementById('v-metal').innerText = parseFloat(e.target.value).toFixed(2);
+        };
+        document.getElementById('normalScale').oninput = (e) => {
+            material.normalScale.set(e.target.value, e.target.value);
+            document.getElementById('v-normal').innerText = parseFloat(e.target.value).toFixed(1);
+        };
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if(sphere) sphere.rotation.y += 0.003;
+        renderer.render(scene, camera);
+    }
+
+    function exportGLTF() {
+        if(!sphere) { alert("Carica prima un'immagine!"); return; }
+        
+        const exporter = new THREE.GLTFExporter();
+        const fileName = document.getElementById('mat-name').value || "material_sl";
+        
+        exporter.parse(sphere, (result) => {
+            const blob = new Blob([JSON.stringify(result)], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fileName + ".gltf";
+            link.click();
+        }, {});
+    }
+</script>
+</body>
+</html>
