@@ -63,19 +63,21 @@
             border: 1px solid #334155;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 15px;
+            max-height: 550px;
+            overflow-y: auto;
         }
 
         h3 { font-size: 0.9rem; color: var(--text-gray); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
 
-        .input-group { display: flex; flex-direction: column; gap: 8px; }
+        .input-group { display: flex; flex-direction: column; gap: 6px; }
         label { font-size: 0.75rem; color: var(--text-gray); font-weight: 600; text-transform: uppercase; }
 
         input[type="text"] {
             background: #0f172a;
             border: 1px solid var(--accent-purple);
             border-radius: 6px;
-            padding: 10px;
+            padding: 8px;
             color: var(--accent-cyan);
             outline: none;
         }
@@ -89,7 +91,7 @@
         .val-display { float: right; color: var(--accent-cyan); font-size: 0.8rem; }
 
         .btn {
-            padding: 15px;
+            padding: 12px;
             border-radius: 8px;
             font-weight: 800;
             cursor: pointer;
@@ -103,7 +105,7 @@
             background: var(--accent-cyan); 
             color: #000; 
             box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
-            margin-top: 10px;
+            margin-top: 5px;
         }
         .btn:hover { transform: scale(1.02); filter: brightness(1.1); }
 
@@ -120,7 +122,7 @@
 <body>
 
 <div class="main-container">
-    <div class="header-title">SL MATERIALIZER PBR</div>
+    <div class="header-title">SL MATERIALIZER PBR FULL</div>
 
     <div class="preview-card" id="viewer-container">
         <div id="upload-prompt" class="initial-upload">
@@ -135,7 +137,7 @@
         
         <div class="input-group">
             <label>Material Name</label>
-            <input type="text" id="mat-name" value="MyCustomMaterial">
+            <input type="text" id="mat-name" value="MyPBRMaterial">
         </div>
 
         <div class="input-group">
@@ -153,11 +155,16 @@
             <input type="range" id="normalScale" min="0" max="3" step="0.1" value="1">
         </div>
 
+        <div class="input-group">
+            <label>Emissive Intensity <span class="val-display" id="v-emissive">0.00</span></label>
+            <input type="range" id="emissive" min="0" max="1" step="0.05" value="0">
+        </div>
+
         <button class="btn btn-load" onclick="document.getElementById('file-input').click()">Change Image</button>
-        <button class="btn btn-export" onclick="exportGLTF()">Export .GLTF Material Finito &rarr;</button>
+        <button class="btn btn-export" onclick="exportGLTF()">Export .GLTF Completo SL &rarr;</button>
         
         <p style="font-size: 0.65rem; color: var(--text-gray); text-align: center;">
-            Compatible with Second Life PBR Workflow<br>Asset ready for direct import
+            Compatibile al 100% con Second Life PBR (gLTF/GLB Standard)<br>Include Base, Normal, (O)RM ed Emissiva
         </p>
     </div>
 </div>
@@ -165,7 +172,9 @@
 <script>
     let scene, camera, renderer, material, sphere;
     let baseImg = null;
-    let normalTexture, armTexture;
+    let baseCanvas, normCanvas, ormCanvas, emissiveCanvas;
+    let baseTex, normTex, ormTex, emissiveTex;
+
     const fileInput = document.getElementById('file-input');
 
     fileInput.onchange = (e) => {
@@ -209,13 +218,9 @@
         backLight.position.set(-5, 2, -5);
         scene.add(backLight);
 
-        const baseTexture = new THREE.CanvasTexture(baseImg);
-        baseTexture.anisotropy = 16;
-
         material = new THREE.MeshStandardMaterial({
-            map: baseTexture,
-            roughness: parseFloat(document.getElementById('roughness').value),
-            metalness: parseFloat(document.getElementById('metallic').value)
+            roughness: 1.0,
+            metalness: 1.0
         });
 
         sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material);
@@ -235,11 +240,24 @@
             document.getElementById('v-normal').innerText = val.toFixed(1);
             if(material) material.normalScale.set(val, val);
         };
+        document.getElementById('emissive').oninput = (e) => {
+            document.getElementById('v-emissive').innerText = parseFloat(e.target.value).toFixed(2);
+            updatePBRTextures();
+        };
 
         animate();
     }
 
-    // --- GENERATORE CANVAS: NORMAL MAP (Sobel Filter) ---
+    // --- CANVAS: BASE COLOR ---
+    function generateBaseCanvas(img) {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return canvas;
+    }
+
+    // --- CANVAS: NORMAL MAP (Sobel) ---
     function generateNormalMap(img, scale) {
         const canvas = document.createElement('canvas');
         const w = img.width, h = img.height;
@@ -252,7 +270,6 @@
         const normData = ctx.createImageData(w, h);
         const out = normData.data;
 
-        // Grayscale conversion
         const gray = new Float32Array(w * h);
         for(let i = 0; i < data.length; i += 4) {
             gray[i/4] = (data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114) / 255.0;
@@ -283,7 +300,7 @@
         return canvas;
     }
 
-    // --- GENERATORE CANVAS: MAPPA ORM (R: AO, G: Roughness, B: Metal) ---
+    // --- CANVAS: ORM MAP (R=Occlusion, G=Roughness, B=Metallic) ---
     function generateORMMap(w, h, roughVal, metalVal) {
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
@@ -291,7 +308,7 @@
         const imgData = ctx.createImageData(w, h);
         const data = imgData.data;
 
-        const r = 255; // Ambient Occlusion di base
+        const r = 255; // Ambient Occlusion 100%
         const g = Math.round(roughVal * 255);
         const b = Math.round(metalVal * 255);
 
@@ -305,24 +322,53 @@
         return canvas;
     }
 
+    // --- CANVAS: EMISSIVE MAP ---
+    function generateEmissiveMap(img, emissiveVal) {
+        const canvas = document.createElement('canvas');
+        const w = img.width, h = img.height;
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            data[i]     = Math.round(data[i] * emissiveVal);
+            data[i + 1] = Math.round(data[i + 1] * emissiveVal);
+            data[i + 2] = Math.round(data[i + 2] * emissiveVal);
+            data[i + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        return canvas;
+    }
+
     function updatePBRTextures() {
         if(!baseImg || !material) return;
 
         const roughVal = parseFloat(document.getElementById('roughness').value);
         const metalVal = parseFloat(document.getElementById('metallic').value);
         const normScale = parseFloat(document.getElementById('normalScale').value);
+        const emissiveVal = parseFloat(document.getElementById('emissive').value);
 
-        // Genera mappe Canvas
-        const normCanvas = generateNormalMap(baseImg, normScale);
-        const armCanvas = generateORMMap(baseImg.width, baseImg.height, roughVal, metalVal);
+        baseCanvas = generateBaseCanvas(baseImg);
+        normCanvas = generateNormalMap(baseImg, normScale);
+        ormCanvas = generateORMMap(baseImg.width, baseImg.height, roughVal, metalVal);
+        emissiveCanvas = generateEmissiveMap(baseImg, emissiveVal);
 
-        normalTexture = new THREE.CanvasTexture(normCanvas);
-        armTexture = new THREE.CanvasTexture(armCanvas);
+        baseTex = new THREE.CanvasTexture(baseCanvas);
+        normTex = new THREE.CanvasTexture(normCanvas);
+        ormTex = new THREE.CanvasTexture(ormCanvas);
+        emissiveTex = new THREE.CanvasTexture(emissiveCanvas);
 
-        material.normalMap = normalTexture;
-        material.aoMap = armTexture;
-        material.roughnessMap = armTexture;
-        material.metalnessMap = armTexture;
+        material.map = baseTex;
+        material.normalMap = normTex;
+        material.aoMap = ormTex;
+        material.roughnessMap = ormTex;
+        material.metalnessMap = ormTex;
+        material.emissiveMap = emissiveTex;
+        material.emissive.setHex(0xffffff);
+        material.emissiveIntensity = emissiveVal > 0 ? 1.0 : 0.0;
 
         material.roughness = 1.0; 
         material.metalness = 1.0;
@@ -341,13 +387,17 @@
         const exporter = new THREE.GLTFExporter();
         const fileName = document.getElementById('mat-name').value || "material_sl";
         
+        // Esportazione con embedding completo delle immagini
         exporter.parse(sphere, (result) => {
-            const blob = new Blob([JSON.stringify(result)], { type: 'application/json' });
+            const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = fileName + ".gltf";
             link.click();
-        }, { binary: false });
+        }, { 
+            binary: false,
+            embedImages: true
+        });
     }
 </script>
 </body>
