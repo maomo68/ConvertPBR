@@ -34,7 +34,6 @@
             padding: 20px;
         }
 
-        /* Titolo Neon */
         .header-title {
             grid-column: 1 / -1;
             text-align: center;
@@ -47,7 +46,6 @@
             text-transform: uppercase;
         }
 
-        /* Area Preview 3D */
         .preview-card {
             background: #000;
             border-radius: 12px;
@@ -58,7 +56,6 @@
             box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
         }
 
-        /* Pannello Controlli */
         .settings-panel {
             background: var(--panel-bg);
             border-radius: 12px;
@@ -72,7 +69,6 @@
         h3 { font-size: 0.9rem; color: var(--text-gray); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
 
         .input-group { display: flex; flex-direction: column; gap: 8px; }
-        
         label { font-size: 0.75rem; color: var(--text-gray); font-weight: 600; text-transform: uppercase; }
 
         input[type="text"] {
@@ -92,7 +88,6 @@
 
         .val-display { float: right; color: var(--accent-cyan); font-size: 0.8rem; }
 
-        /* Bottoni */
         .btn {
             padding: 15px;
             border-radius: 8px;
@@ -114,7 +109,6 @@
 
         .hidden { display: none; }
 
-        /* Overlay Caricamento Iniziale */
         .initial-upload {
             position: absolute;
             top: 50%; left: 50%;
@@ -170,18 +164,28 @@
 
 <script>
     let scene, camera, renderer, material, sphere;
+    let baseImg = null;
+    let normalTexture, armTexture;
     const fileInput = document.getElementById('file-input');
 
     fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
         const reader = new FileReader();
-        reader.onload = (event) => initScene(event.target.result);
-        reader.readAsDataURL(e.target.files[0]);
+        reader.onload = (event) => {
+            baseImg = new Image();
+            baseImg.onload = () => {
+                initScene();
+                updatePBRTextures();
+            };
+            baseImg.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
     };
 
-    function initScene(imageSrc) {
+    function initScene() {
         document.getElementById('upload-prompt').classList.add('hidden');
         
-        // Se la scena esiste già, puliamola
         if(renderer) {
             document.getElementById('viewer-container').removeChild(renderer.domElement);
         }
@@ -194,47 +198,135 @@
         renderer.setSize(document.getElementById('viewer-container').clientWidth, 550);
         document.getElementById('viewer-container').appendChild(renderer.domElement);
 
-        // --- ILLUMINAZIONE SCHIARITA (Studio Setup) ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Luce diffusa alta
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
 
-        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2); // Luce frontale forte
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
         mainLight.position.set(1, 1, 5);
         scene.add(mainLight);
 
-        const backLight = new THREE.PointLight(0xffffff, 0.5); // Luce di contorno
+        const backLight = new THREE.PointLight(0xffffff, 0.5);
         backLight.position.set(-5, 2, -5);
         scene.add(backLight);
 
-        // Texture
-        const loader = new THREE.TextureLoader();
-        loader.load(imageSrc, (texture) => {
-            texture.anisotropy = 16;
-            material = new THREE.MeshStandardMaterial({
-                map: texture,
-                roughness: 0.5,
-                metalness: 0,
-                normalMap: texture, // Usiamo l'immagine come normal map base
-            });
+        const baseTexture = new THREE.CanvasTexture(baseImg);
+        baseTexture.anisotropy = 16;
 
-            sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material);
-            scene.add(sphere);
-            animate();
+        material = new THREE.MeshStandardMaterial({
+            map: baseTexture,
+            roughness: parseFloat(document.getElementById('roughness').value),
+            metalness: parseFloat(document.getElementById('metallic').value)
         });
 
-        // Controlli Real-time con display valori
+        sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material);
+        scene.add(sphere);
+
+        // Eventi Slider
         document.getElementById('roughness').oninput = (e) => {
-            material.roughness = e.target.value;
             document.getElementById('v-rough').innerText = parseFloat(e.target.value).toFixed(2);
+            updatePBRTextures();
         };
         document.getElementById('metallic').oninput = (e) => {
-            material.metalness = e.target.value;
             document.getElementById('v-metal').innerText = parseFloat(e.target.value).toFixed(2);
+            updatePBRTextures();
         };
         document.getElementById('normalScale').oninput = (e) => {
-            material.normalScale.set(e.target.value, e.target.value);
-            document.getElementById('v-normal').innerText = parseFloat(e.target.value).toFixed(1);
+            const val = parseFloat(e.target.value);
+            document.getElementById('v-normal').innerText = val.toFixed(1);
+            if(material) material.normalScale.set(val, val);
         };
+
+        animate();
+    }
+
+    // --- GENERATORE CANVAS: NORMAL MAP (Sobel Filter) ---
+    function generateNormalMap(img, scale) {
+        const canvas = document.createElement('canvas');
+        const w = img.width, h = img.height;
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        const normData = ctx.createImageData(w, h);
+        const out = normData.data;
+
+        // Grayscale conversion
+        const gray = new Float32Array(w * h);
+        for(let i = 0; i < data.length; i += 4) {
+            gray[i/4] = (data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114) / 255.0;
+        }
+
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                let x0 = x > 0 ? x - 1 : x, x1 = x < w - 1 ? x + 1 : x;
+                let y0 = y > 0 ? y - 1 : y, y1 = y < h - 1 ? y + 1 : y;
+
+                let dx = (gray[y * w + x1] - gray[y * w + x0]) * scale * 2.0;
+                let dy = (gray[y1 * w + x] - gray[y0 * w + x]) * scale * 2.0;
+                let dz = 1.0;
+
+                let len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                let nx = (dx / len) * 0.5 + 0.5;
+                let ny = (dy / len) * 0.5 + 0.5;
+                let nz = (dz / len) * 0.5 + 0.5;
+
+                let idx = (y * w + x) * 4;
+                out[idx]     = nx * 255;
+                out[idx + 1] = ny * 255;
+                out[idx + 2] = nz * 255;
+                out[idx + 3] = 255;
+            }
+        }
+        ctx.putImageData(normData, 0, 0);
+        return canvas;
+    }
+
+    // --- GENERATORE CANVAS: MAPPA ORM (R: AO, G: Roughness, B: Metal) ---
+    function generateORMMap(w, h, roughVal, metalVal) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        const imgData = ctx.createImageData(w, h);
+        const data = imgData.data;
+
+        const r = 255; // Ambient Occlusion di base
+        const g = Math.round(roughVal * 255);
+        const b = Math.round(metalVal * 255);
+
+        for (let i = 0; i < data.length; i += 4) {
+            data[i]     = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+            data[i + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        return canvas;
+    }
+
+    function updatePBRTextures() {
+        if(!baseImg || !material) return;
+
+        const roughVal = parseFloat(document.getElementById('roughness').value);
+        const metalVal = parseFloat(document.getElementById('metallic').value);
+        const normScale = parseFloat(document.getElementById('normalScale').value);
+
+        // Genera mappe Canvas
+        const normCanvas = generateNormalMap(baseImg, normScale);
+        const armCanvas = generateORMMap(baseImg.width, baseImg.height, roughVal, metalVal);
+
+        normalTexture = new THREE.CanvasTexture(normCanvas);
+        armTexture = new THREE.CanvasTexture(armCanvas);
+
+        material.normalMap = normalTexture;
+        material.aoMap = armTexture;
+        material.roughnessMap = armTexture;
+        material.metalnessMap = armTexture;
+
+        material.roughness = 1.0; 
+        material.metalness = 1.0;
+        material.needsUpdate = true;
     }
 
     function animate() {
@@ -255,7 +347,7 @@
             link.href = URL.createObjectURL(blob);
             link.download = fileName + ".gltf";
             link.click();
-        }, {});
+        }, { binary: false });
     }
 </script>
 </body>
