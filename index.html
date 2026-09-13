@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>SL MATERIALIZER PBR</title>
+    <title>SL MATERIALIZER PBR FULL</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
     <style>
@@ -26,11 +26,11 @@
         }
 
         .main-container {
-            width: 95%;
-            max-width: 1100px;
+            width: 98%;
+            max-width: 1400px;
             display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 25px;
+            grid-template-columns: 1fr 1fr 340px;
+            gap: 20px;
             padding: 20px;
         }
 
@@ -42,7 +42,7 @@
             letter-spacing: 2px;
             color: var(--accent-cyan);
             text-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
-            margin-bottom: 10px;
+            margin-bottom: 5px;
             text-transform: uppercase;
         }
 
@@ -56,22 +56,39 @@
             box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
         }
 
+        .preview-label {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid #334155;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            z-index: 10;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
         .settings-panel {
             background: var(--panel-bg);
             border-radius: 12px;
-            padding: 25px;
+            padding: 20px;
             border: 1px solid #334155;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 12px;
             max-height: 550px;
             overflow-y: auto;
+            box-sizing: border-box;
         }
 
-        h3 { font-size: 0.9rem; color: var(--text-gray); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+        h3 { font-size: 0.85rem; color: var(--text-gray); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
 
-        .input-group { display: flex; flex-direction: column; gap: 6px; }
-        label { font-size: 0.75rem; color: var(--text-gray); font-weight: 600; text-transform: uppercase; }
+        .input-group { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 0.7rem; color: var(--text-gray); font-weight: 600; text-transform: uppercase; }
 
         input[type="text"] {
             background: #0f172a;
@@ -88,16 +105,17 @@
             accent-color: var(--accent-cyan);
         }
 
-        .val-display { float: right; color: var(--accent-cyan); font-size: 0.8rem; }
+        .val-display { float: right; color: var(--accent-cyan); font-size: 0.75rem; }
 
         .btn {
-            padding: 12px;
+            padding: 10px;
             border-radius: 8px;
             font-weight: 800;
             cursor: pointer;
             border: none;
             text-transform: uppercase;
             transition: 0.3s;
+            font-size: 0.8rem;
         }
 
         .btn-load { background: var(--accent-purple); color: white; }
@@ -116,6 +134,7 @@
             top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             text-align: center;
+            width: 80%;
         }
     </style>
 </head>
@@ -124,7 +143,9 @@
 <div class="main-container">
     <div class="header-title">SL MATERIALIZER PBR FULL</div>
 
-    <div class="preview-card" id="viewer-container">
+    <!-- Viewport 1: Sfera 3D -->
+    <div class="preview-card" id="viewer-container-3d">
+        <div class="preview-label">Anteprima 3D (Sfera)</div>
         <div id="upload-prompt" class="initial-upload">
             <button class="btn btn-load" onclick="document.getElementById('file-input').click()">Carica Immagine Base</button>
             <p style="font-size: 0.8rem; color: var(--text-gray); margin-top: 10px;">JPG o PNG (1024x1024 consigliato)</p>
@@ -132,12 +153,23 @@
         <input type="file" id="file-input" class="hidden" accept="image/*">
     </div>
 
+    <!-- Viewport 2: Piano Tiling (Second Life Style) -->
+    <div class="preview-card" id="viewer-container-tiling">
+        <div class="preview-label">Test Seamless / Tiling SL</div>
+    </div>
+
+    <!-- Pannello Controlli -->
     <div class="settings-panel">
         <h3>Material Settings</h3>
         
         <div class="input-group">
             <label>Material Name</label>
             <input type="text" id="mat-name" value="MyPBRMaterial">
+        </div>
+
+        <div class="input-group">
+            <label>SL Tiling (Ripetizione) <span class="val-display" id="v-tiling">3x3</span></label>
+            <input type="range" id="tiling" min="1" max="10" step="1" value="3">
         </div>
 
         <div class="input-group">
@@ -170,10 +202,12 @@
 </div>
 
 <script>
-    let scene, camera, renderer, material, sphere;
+    let scene3D, camera3D, renderer3D, sphere;
+    let sceneTile, cameraTile, rendererTile, planeTile;
+    let material3D, materialTile;
+    
     let baseImg = null;
     let baseCanvas, normCanvas, ormCanvas, emissiveCanvas;
-    let baseTex, normTex, ormTex, emissiveTex;
 
     const fileInput = document.getElementById('file-input');
 
@@ -184,7 +218,7 @@
         reader.onload = (event) => {
             baseImg = new Image();
             baseImg.onload = () => {
-                initScene();
+                initScenes();
                 updatePBRTextures();
             };
             baseImg.src = event.target.result;
@@ -192,41 +226,51 @@
         reader.readAsDataURL(file);
     };
 
-    function initScene() {
+    function initScenes() {
         document.getElementById('upload-prompt').classList.add('hidden');
         
-        if(renderer) {
-            document.getElementById('viewer-container').removeChild(renderer.domElement);
-        }
+        // --- 1. Scena Sfera 3D ---
+        const container3D = document.getElementById('viewer-container-3d');
+        if(renderer3D) container3D.removeChild(renderer3D.domElement);
 
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(45, document.getElementById('viewer-container').clientWidth / 550, 0.1, 100);
-        camera.position.z = 2.8;
+        scene3D = new THREE.Scene();
+        camera3D = new THREE.PerspectiveCamera(45, container3D.clientWidth / 550, 0.1, 100);
+        camera3D.position.z = 2.8;
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(document.getElementById('viewer-container').clientWidth, 550);
-        document.getElementById('viewer-container').appendChild(renderer.domElement);
+        renderer3D = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer3D.setSize(container3D.clientWidth, 550);
+        container3D.appendChild(renderer3D.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-        scene.add(ambientLight);
+        addLighting(scene3D);
 
-        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
-        mainLight.position.set(1, 1, 5);
-        scene.add(mainLight);
+        material3D = new THREE.MeshStandardMaterial({ roughness: 1.0, metalness: 1.0 });
+        sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material3D);
+        scene3D.add(sphere);
 
-        const backLight = new THREE.PointLight(0xffffff, 0.5);
-        backLight.position.set(-5, 2, -5);
-        scene.add(backLight);
+        // --- 2. Scena Piano Tiling ---
+        const containerTile = document.getElementById('viewer-container-tiling');
+        if(rendererTile) containerTile.removeChild(rendererTile.domElement);
 
-        material = new THREE.MeshStandardMaterial({
-            roughness: 1.0,
-            metalness: 1.0
-        });
+        sceneTile = new THREE.Scene();
+        cameraTile = new THREE.PerspectiveCamera(45, containerTile.clientWidth / 550, 0.1, 100);
+        cameraTile.position.z = 2.5;
 
-        sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material);
-        scene.add(sphere);
+        rendererTile = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        rendererTile.setSize(containerTile.clientWidth, 550);
+        containerTile.appendChild(rendererTile.domElement);
 
-        // Eventi Slider
+        addLighting(sceneTile);
+
+        materialTile = new THREE.MeshStandardMaterial({ roughness: 1.0, metalness: 1.0 });
+        planeTile = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialTile);
+        sceneTile.add(planeTile);
+
+        // --- Bind Eventi Controlli ---
+        document.getElementById('tiling').oninput = (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('v-tiling').innerText = `${val}x${val}`;
+            updatePBRTextures();
+        };
         document.getElementById('roughness').oninput = (e) => {
             document.getElementById('v-rough').innerText = parseFloat(e.target.value).toFixed(2);
             updatePBRTextures();
@@ -238,7 +282,8 @@
         document.getElementById('normalScale').oninput = (e) => {
             const val = parseFloat(e.target.value);
             document.getElementById('v-normal').innerText = val.toFixed(1);
-            if(material) material.normalScale.set(val, val);
+            if(material3D) material3D.normalScale.set(val, val);
+            if(materialTile) materialTile.normalScale.set(val, val);
         };
         document.getElementById('emissive').oninput = (e) => {
             document.getElementById('v-emissive').innerText = parseFloat(e.target.value).toFixed(2);
@@ -248,7 +293,20 @@
         animate();
     }
 
-    // --- CANVAS: BASE COLOR ---
+    function addLighting(targetScene) {
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        targetScene.add(ambientLight);
+
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        mainLight.position.set(1, 1, 5);
+        targetScene.add(mainLight);
+
+        const backLight = new THREE.PointLight(0xffffff, 0.5);
+        backLight.position.set(-5, 2, -5);
+        targetScene.add(backLight);
+    }
+
+    // --- GENERAZIONE CANVAS (MAPPE) ---
     function generateBaseCanvas(img) {
         const canvas = document.createElement('canvas');
         canvas.width = img.width; canvas.height = img.height;
@@ -257,7 +315,6 @@
         return canvas;
     }
 
-    // --- CANVAS: NORMAL MAP (Sobel) ---
     function generateNormalMap(img, scale) {
         const canvas = document.createElement('canvas');
         const w = img.width, h = img.height;
@@ -300,7 +357,6 @@
         return canvas;
     }
 
-    // --- CANVAS: ORM MAP (R=Occlusion, G=Roughness, B=Metallic) ---
     function generateORMMap(w, h, roughVal, metalVal) {
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
@@ -322,7 +378,6 @@
         return canvas;
     }
 
-    // --- CANVAS: EMISSIVE MAP ---
     function generateEmissiveMap(img, emissiveVal) {
         const canvas = document.createElement('canvas');
         const w = img.width, h = img.height;
@@ -343,42 +398,64 @@
         return canvas;
     }
 
+    // --- AGGIORNAMENTO TEXTURES & MATERIALI ---
     function updatePBRTextures() {
-        if(!baseImg || !material) return;
+        if(!baseImg || !material3D || !materialTile) return;
 
         const roughVal = parseFloat(document.getElementById('roughness').value);
         const metalVal = parseFloat(document.getElementById('metallic').value);
         const normScale = parseFloat(document.getElementById('normalScale').value);
         const emissiveVal = parseFloat(document.getElementById('emissive').value);
+        const tileVal = parseInt(document.getElementById('tiling').value);
 
         baseCanvas = generateBaseCanvas(baseImg);
         normCanvas = generateNormalMap(baseImg, normScale);
         ormCanvas = generateORMMap(baseImg.width, baseImg.height, roughVal, metalVal);
         emissiveCanvas = generateEmissiveMap(baseImg, emissiveVal);
 
-        baseTex = new THREE.CanvasTexture(baseCanvas);
-        normTex = new THREE.CanvasTexture(normCanvas);
-        ormTex = new THREE.CanvasTexture(ormCanvas);
-        emissiveTex = new THREE.CanvasTexture(emissiveCanvas);
+        // Textures per Sfera 3D (Tiling 1x1)
+        const baseTex3D = new THREE.CanvasTexture(baseCanvas);
+        const normTex3D = new THREE.CanvasTexture(normCanvas);
+        const ormTex3D = new THREE.CanvasTexture(ormCanvas);
+        const emissiveTex3D = new THREE.CanvasTexture(emissiveCanvas);
 
-        material.map = baseTex;
-        material.normalMap = normTex;
-        material.aoMap = ormTex;
-        material.roughnessMap = ormTex;
-        material.metalnessMap = ormTex;
-        material.emissiveMap = emissiveTex;
-        material.emissive.setHex(0xffffff);
-        material.emissiveIntensity = emissiveVal > 0 ? 1.0 : 0.0;
+        applyMaterialProps(material3D, baseTex3D, normTex3D, ormTex3D, emissiveTex3D, emissiveVal, 1);
 
-        material.roughness = 1.0; 
-        material.metalness = 1.0;
-        material.needsUpdate = true;
+        // Textures per Piano Seamless (Tiling NxN)
+        const baseTexTile = new THREE.CanvasTexture(baseCanvas);
+        const normTexTile = new THREE.CanvasTexture(normCanvas);
+        const ormTexTile = new THREE.CanvasTexture(ormCanvas);
+        const emissiveTexTile = new THREE.CanvasTexture(emissiveCanvas);
+
+        applyMaterialProps(materialTile, baseTexTile, normTexTile, ormTexTile, emissiveTexTile, emissiveVal, tileVal);
+    }
+
+    function applyMaterialProps(mat, base, norm, orm, emissive, emissiveVal, repeatFactor) {
+        [base, norm, orm, emissive].forEach(tex => {
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(repeatFactor, repeatFactor);
+        });
+
+        mat.map = base;
+        mat.normalMap = norm;
+        mat.aoMap = orm;
+        mat.roughnessMap = orm;
+        mat.metalnessMap = orm;
+        mat.emissiveMap = emissive;
+        mat.emissive.setHex(0xffffff);
+        mat.emissiveIntensity = emissiveVal > 0 ? 1.0 : 0.0;
+
+        mat.roughness = 1.0; 
+        mat.metalness = 1.0;
+        mat.needsUpdate = true;
     }
 
     function animate() {
         requestAnimationFrame(animate);
         if(sphere) sphere.rotation.y += 0.003;
-        renderer.render(scene, camera);
+        if(renderer3D && scene3D) renderer3D.render(scene3D, camera3D);
+        if(rendererTile && sceneTile) rendererTile.render(sceneTile, cameraTile);
     }
 
     function exportGLTF() {
@@ -387,7 +464,6 @@
         const exporter = new THREE.GLTFExporter();
         const fileName = document.getElementById('mat-name').value || "material_sl";
         
-        // Esportazione con embedding completo delle immagini
         exporter.parse(sphere, (result) => {
             const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
             const link = document.createElement('a');
