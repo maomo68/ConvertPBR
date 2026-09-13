@@ -143,9 +143,9 @@
 <div class="main-container">
     <div class="header-title">SL MATERIALIZER PBR FULL</div>
 
-    <!-- Viewport 1: Sfera 3D -->
+    <!-- Viewport 1: Sfera 3D PBR -->
     <div class="preview-card" id="viewer-container-3d">
-        <div class="preview-label">Anteprima 3D (Sfera)</div>
+        <div class="preview-label">Anteprima 3D (Sfera PBR)</div>
         <div id="upload-prompt" class="initial-upload">
             <button class="btn btn-load" onclick="document.getElementById('file-input').click()">Carica Immagine Base</button>
             <p style="font-size: 0.8rem; color: var(--text-gray); margin-top: 10px;">JPG o PNG (1024x1024 consigliato)</p>
@@ -153,9 +153,9 @@
         <input type="file" id="file-input" class="hidden" accept="image/*">
     </div>
 
-    <!-- Viewport 2: Piano Tiling (Second Life Style) -->
+    <!-- Viewport 2: Piano Tiling 2D Neutro -->
     <div class="preview-card" id="viewer-container-tiling">
-        <div class="preview-label">Test Seamless / Tiling SL</div>
+        <div class="preview-label">Test Seamless 2D (Senza PBR)</div>
     </div>
 
     <!-- Pannello Controlli -->
@@ -229,7 +229,7 @@
     function initScenes() {
         document.getElementById('upload-prompt').classList.add('hidden');
         
-        // --- 1. Scena Sfera 3D ---
+        // --- 1. Scena Sfera 3D PBR ---
         const container3D = document.getElementById('viewer-container-3d');
         if(renderer3D) container3D.removeChild(renderer3D.domElement);
 
@@ -247,21 +247,19 @@
         sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), material3D);
         scene3D.add(sphere);
 
-        // --- 2. Scena Piano Tiling ---
+        // --- 2. Scena Piano Tiling 2D Neutro (Senza PBR / Senza Luci) ---
         const containerTile = document.getElementById('viewer-container-tiling');
         if(rendererTile) containerTile.removeChild(rendererTile.domElement);
 
         sceneTile = new THREE.Scene();
         cameraTile = new THREE.PerspectiveCamera(45, containerTile.clientWidth / 550, 0.1, 100);
-        cameraTile.position.z = 2.5;
+        cameraTile.position.z = 2.4;
 
         rendererTile = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         rendererTile.setSize(containerTile.clientWidth, 550);
         containerTile.appendChild(rendererTile.domElement);
 
-        addLighting(sceneTile);
-
-        materialTile = new THREE.MeshStandardMaterial({ roughness: 1.0, metalness: 1.0 });
+        materialTile = new THREE.MeshBasicMaterial();
         planeTile = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialTile);
         sceneTile.add(planeTile);
 
@@ -283,7 +281,6 @@
             const val = parseFloat(e.target.value);
             document.getElementById('v-normal').innerText = val.toFixed(1);
             if(material3D) material3D.normalScale.set(val, val);
-            if(materialTile) materialTile.normalScale.set(val, val);
         };
         document.getElementById('emissive').oninput = (e) => {
             document.getElementById('v-emissive').innerText = parseFloat(e.target.value).toFixed(2);
@@ -413,28 +410,29 @@
         ormCanvas = generateORMMap(baseImg.width, baseImg.height, roughVal, metalVal);
         emissiveCanvas = generateEmissiveMap(baseImg, emissiveVal);
 
-        // Textures per Sfera 3D (Tiling 1x1)
+        // Textures per Sfera 3D PBR (Tiling 1x1)
         const baseTex3D = new THREE.CanvasTexture(baseCanvas);
         const normTex3D = new THREE.CanvasTexture(normCanvas);
         const ormTex3D = new THREE.CanvasTexture(ormCanvas);
         const emissiveTex3D = new THREE.CanvasTexture(emissiveCanvas);
 
-        applyMaterialProps(material3D, baseTex3D, normTex3D, ormTex3D, emissiveTex3D, emissiveVal, 1);
+        applyPBRMaterialProps(material3D, baseTex3D, normTex3D, ormTex3D, emissiveTex3D, emissiveVal);
 
-        // Textures per Piano Seamless (Tiling NxN)
+        // Texture Flat per Piano Tiling (senza luci e senza bagliori PBR)
         const baseTexTile = new THREE.CanvasTexture(baseCanvas);
-        const normTexTile = new THREE.CanvasTexture(normCanvas);
-        const ormTexTile = new THREE.CanvasTexture(ormCanvas);
-        const emissiveTexTile = new THREE.CanvasTexture(emissiveCanvas);
+        baseTexTile.wrapS = THREE.RepeatWrapping;
+        baseTexTile.wrapT = THREE.RepeatWrapping;
+        baseTexTile.repeat.set(tileVal, tileVal);
 
-        applyMaterialProps(materialTile, baseTexTile, normTexTile, ormTexTile, emissiveTexTile, emissiveVal, tileVal);
+        materialTile.map = baseTexTile;
+        materialTile.needsUpdate = true;
     }
 
-    function applyMaterialProps(mat, base, norm, orm, emissive, emissiveVal, repeatFactor) {
+    function applyPBRMaterialProps(mat, base, norm, orm, emissive, emissiveVal) {
         [base, norm, orm, emissive].forEach(tex => {
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(repeatFactor, repeatFactor);
+            tex.repeat.set(1, 1);
         });
 
         mat.map = base;
